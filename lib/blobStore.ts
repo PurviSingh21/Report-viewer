@@ -14,10 +14,10 @@ export function isBlobAvailable(): boolean {
 
 /** List every unique run ID stored in Blob, newest first. */
 export async function blobListRuns(): Promise<string[]> {
-  const { blobs } = await list({ prefix: PREFIX, mode: "folded" });
-  // In folded mode each "folder" is returned as a blob with a trailing slash.
-  return blobs
-    .map((b) => b.pathname.replace(PREFIX, "").replace(/\/$/, ""))
+  const result = await list({ prefix: PREFIX, mode: "folded" });
+  const folders = (result as unknown as { folders?: string[] }).folders ?? [];
+  return folders
+    .map((f) => f.replace(PREFIX, "").replace(/\/$/, ""))
     .filter(Boolean)
     .sort()
     .reverse();
@@ -25,14 +25,13 @@ export async function blobListRuns(): Promise<string[]> {
 
 /** List every site folder under a given run ID. */
 export async function blobListSites(runId: string): Promise<string[]> {
-  const { blobs } = await list({
+  const result = await list({
     prefix: `${PREFIX}${runId}/`,
     mode: "folded",
   });
-  return blobs
-    .map((b) =>
-      b.pathname.replace(`${PREFIX}${runId}/`, "").replace(/\/$/, "")
-    )
+  const folders = (result as unknown as { folders?: string[] }).folders ?? [];
+  return folders
+    .map((f) => f.replace(`${PREFIX}${runId}/`, "").replace(/\/$/, ""))
     .filter((s) => s !== "");
 }
 
