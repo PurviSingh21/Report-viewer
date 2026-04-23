@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
+import { 
   listRuns,
-  listSitesForRun,
   getRunSummary,
   getAllResultsForRun,
   getAllPassedForRun,
