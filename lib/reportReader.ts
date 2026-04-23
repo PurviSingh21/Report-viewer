@@ -5,22 +5,16 @@ import type {
   PriorityLevel,
   QualityMetrics,
 } from "./types";
+import {
+  isBlobAvailable,
+  blobListRuns,
+  blobListSites,
+  blobGetResults,
+  blobGetPassed,
+  blobGetFailed,
+} from "./blobStore";
 
-const API_URL = process.env.API_URL || "";
-
-// ─── API-based data fetching (when backend is running) ────────
-
-async function apiFetch<T>(path: string): Promise<T | null> {
-  try {
-    const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
-// ─── Filesystem-based data fetching (fallback) ───────────────
+// ─── Filesystem-based data fetching (local dev fallback) ──────
 
 async function fsListRuns(): Promise<string[]> {
   const fs = await import("fs/promises");
@@ -87,41 +81,34 @@ async function fsGetForSite(runId: string, site: string, file: string): Promise<
   return (await fsReadJson<TestResult[]>(filePath)) ?? [];
 }
 
-// ─── Public API (auto-selects backend vs filesystem) ──────────
+// ─── Public API (Blob → filesystem) ──────────────────────────
 
 export async function listRuns(): Promise<string[]> {
-  if (API_URL) {
-    const data = await apiFetch<{ runs: string[] }>("/api/runs");
-    return data?.runs ?? [];
-  }
+  if (isBlobAvailable()) return blobListRuns();
   return fsListRuns();
 }
 
 export async function listSitesForRun(runId: string): Promise<string[]> {
-  if (API_URL) {
-    const data = await apiFetch<{ sites: string[] }>(`/api/runs/${runId}/sites`);
-    return data?.sites ?? [];
-  }
+  if (isBlobAvailable()) return blobListSites(runId);
   return fsListSitesForRun(runId);
 }
 
 export async function getResultsForSite(runId: string, site: string): Promise<TestResult[]> {
+  if (isBlobAvailable()) return blobGetResults(runId, site);
   return fsGetForSite(runId, site, "full_result.json");
 }
 
 export async function getPassedForSite(runId: string, site: string): Promise<TestResult[]> {
+  if (isBlobAvailable()) return blobGetPassed(runId, site);
   return fsGetForSite(runId, site, "passed.json");
 }
 
 export async function getFailedForSite(runId: string, site: string): Promise<TestResult[]> {
+  if (isBlobAvailable()) return blobGetFailed(runId, site);
   return fsGetForSite(runId, site, "failed.json");
 }
 
 export async function getAllResultsForRun(runId: string): Promise<TestResult[]> {
-  if (API_URL) {
-    const data = await apiFetch<{ results: TestResult[] }>(`/api/runs/${runId}/results`);
-    return data?.results ?? [];
-  }
   const sites = await listSitesForRun(runId);
   const all: TestResult[] = [];
   for (const site of sites) all.push(...(await getResultsForSite(runId, site)));
@@ -129,10 +116,6 @@ export async function getAllResultsForRun(runId: string): Promise<TestResult[]> 
 }
 
 export async function getAllPassedForRun(runId: string): Promise<TestResult[]> {
-  if (API_URL) {
-    const data = await apiFetch<{ results: TestResult[] }>(`/api/runs/${runId}/passed`);
-    return data?.results ?? [];
-  }
   const sites = await listSitesForRun(runId);
   const all: TestResult[] = [];
   for (const site of sites) all.push(...(await getPassedForSite(runId, site)));
@@ -140,15 +123,13 @@ export async function getAllPassedForRun(runId: string): Promise<TestResult[]> {
 }
 
 export async function getAllFailedForRun(runId: string): Promise<TestResult[]> {
-  if (API_URL) {
-    const data = await apiFetch<{ results: TestResult[] }>(`/api/runs/${runId}/failed`);
-    return data?.results ?? [];
-  }
   const sites = await listSitesForRun(runId);
   const all: TestResult[] = [];
   for (const site of sites) all.push(...(await getFailedForSite(runId, site)));
   return all;
 }
+
+// ─── Aggregation helpers ──────────────────────────────────────
 
 function buildSiteSummary(name: string, results: TestResult[]): SiteSummary {
   const passed = results.filter((r) => r.outcome === "passed").length;
@@ -182,11 +163,6 @@ function buildSiteSummary(name: string, results: TestResult[]): SiteSummary {
 }
 
 export async function getRunSummary(runId: string): Promise<RunSummary | null> {
-  if (API_URL) {
-    const data = await apiFetch<{ summary: RunSummary }>(`/api/runs/${runId}/summary`);
-    return data?.summary ?? null;
-  }
-
   const sites = await listSitesForRun(runId);
   if (!sites.length) return null;
 
@@ -226,11 +202,6 @@ export async function getRunSummary(runId: string): Promise<RunSummary | null> {
 }
 
 export async function getQualityMetrics(runId: string): Promise<QualityMetrics> {
-  if (API_URL) {
-    const data = await apiFetch<{ metrics: QualityMetrics }>(`/api/runs/${runId}/quality`);
-    if (data?.metrics) return data.metrics;
-  }
-
   const allResults = await getAllResultsForRun(runId);
 
   const passed = allResults.filter((r) => r.outcome === "passed").length;
